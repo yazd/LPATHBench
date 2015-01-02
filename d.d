@@ -1,74 +1,66 @@
-import std.file;
-import std.stdio;
-import std.array;
-import std.conv;
-import std.string;
-import std.datetime;
-import std.exception;
-import std.algorithm;
+import
+  std.algorithm,
+  std.array,
+  std.conv,
+  std.datetime,
+  std.exception,
+  std.file,
+  std.functional,
+  std.format,
+  std.stdio,
+  std.string;
 
-version = fast;
-
-struct route{
+struct Route
+{
   int dest, cost;
 }
 
-struct node {
-  route[] neighbours;
+struct Node
+{
+  Route[] neighbours;
 }
 
-node[] readPlaces(string text) pure {
+alias maximize = partial!(reduce!max, 0);
+
+Node[] readPlaces(string text) pure
+{
   auto lines = splitLines(text);
-  auto numNodes = to!int(lines.front);
+  auto numNodes = lines.front.to!int;
   lines.popFront();
-  node[] nodes =  minimallyInitializedArray!(node[])(numNodes);
-  foreach(lineNum, string ln; lines){
-    auto nums = ln.splitter(" ").array.map!(to!int);
-    enforce(nums.length >= 3, "missing an edge on: " ~ (lineNum+1).to!string);
-    auto node = nums[0];
-    auto neighbour = nums[1];
-    auto cost = nums[2];
-    nodes[node].neighbours.insertInPlace(0, route(neighbour,cost));
+
+  Node[] nodes = new Node[](numNodes);
+  foreach (lineNum, line; lines)
+  {
+    int node, neighbour, cost;
+    line.formattedRead("%s %s %s", &node, &neighbour, &cost);
+    nodes[node].neighbours ~= Route(neighbour, cost);
   }
   return nodes;
 }
 
-int getLongestPath(immutable(node[]) nodes, const int nodeID, bool[] visited) nothrow @safe{
-  visited[nodeID] = true;
+alias getLongestPath = memoize!getLongestPathImpl;
+int getLongestPathImpl(immutable(Node[]) nodes, const int nodeID, bool[] visited)
+{
+              visited[nodeID] = true;
+  scope(exit) visited[nodeID] = false;
 
-  version(fast) {
-    int identifiedMax=0;
-    foreach(immutable route neighbour; nodes[nodeID].neighbours){
-      if (!visited[neighbour.dest]){
-        const int distance = neighbour.cost + getLongestPath(nodes, neighbour.dest, visited);
-        identifiedMax = max(distance, identifiedMax);
-      }
-    }
-  } else {
-    // Slight increase to runtime for LDC
-    // Greater increase to runtime for DMD and GDC
-
-    int dist(immutable route r) nothrow @safe{
-      return r.cost + getLongestPath(nodes, r.dest, visited);
-    }
-
-    auto list = nodes[nodeID].neighbours.filter!(x=>!visited[x.dest]).map!dist;
-    auto identifiedMax = reduce!(max)(0, list);
-  }
-
-  visited[nodeID] = false;
-  return identifiedMax;
+  return nodes[nodeID]
+    .neighbours
+    .filter!(route => !visited[route.dest])
+    .map!(route => route.cost + getLongestPath(nodes, route.dest, visited))
+    .maximize();
 }
 
-
-void main(){
+void main()
+{
   immutable nodes = readPlaces(readText("agraph"));
-  auto visited = uninitializedArray!(bool[])(nodes.length);
+  auto visited = new bool[](nodes.length);
   visited[] = false;
 
   StopWatch sw;
-  sw.start;  
+  sw.start();
   int len = getLongestPath(nodes, 0, visited);
-  sw.stop;
+  sw.stop();
+
   printf("%d LANGUAGE D %d\n", len, sw.peek().msecs);
 }
